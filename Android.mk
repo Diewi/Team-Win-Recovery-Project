@@ -143,7 +143,7 @@ LOCAL_SHARED_LIBRARIES += libcrecovery libtwadbbu libtwrpdigest libc++
 
 #MultiROM
 ifeq ($(TARGET_RECOVERY_IS_MULTIROM), true)
-    LOCAL_STATIC_LIBRARIES += libcp_xattrs
+    LOCAL_STATIC_LIBRARIES += libcp_xattrs libfdt
 
     # clone libbootimg to /system/extras/ from
     # https://github.com/Tasssadar/libbootimg.git

@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <fstream>
 
 // clone libbootimg to /system/extras/ from
 // https://github.com/Tasssadar/libbootimg.git
@@ -1650,7 +1651,7 @@ exit:
 }
 
 int gui_changeOverlay(std::string newPage);
-bool MultiROM::injectBoot(std::string img_path, bool only_if_older)
+bool MultiROM::injectBoot(std::string img_path, bool inject_secondary, bool only_if_older)
 {
 	int tr_my_ver = getTrampolineVersion();
 	if(tr_my_ver <= 0)
@@ -1659,12 +1660,38 @@ bool MultiROM::injectBoot(std::string img_path, bool only_if_older)
 		return false;
 	}
 
+	std::string secondary_str = "";
+	if(inject_secondary)
+	{
+		secondary_str = "--secondary";
+
+		std::string dtb_path(img_path);
+		std::size_t boot_img_pos = dtb_path.rfind("/");
+		if(boot_img_pos == std::string::npos)
+		{
+			gui_print("Could not identify the name of the boot image.\n", tr_my_ver);
+			return false;
+		}
+		dtb_path.replace(boot_img_pos, dtb_path.length() - boot_img_pos, "");
+		dtb_path.append("/boot/dtb.img");
+		gui_print("DTB path: %s.\n", dtb_path.c_str());
+
+		struct bootimg img;
+		if(libbootimg_init_load(&img, img_path.c_str(), LIBBOOTIMG_LOAD_ALL) < 0)
+		{
+			gui_print("Could not open boot image (%s)!\n", img_path.c_str());
+			return false;
+		}
+		libbootimg_dump_dtb(&img, dtb_path.c_str());
+	}
+
 	bool res;
 	if(tr_my_ver < 17)
 		res = injectBootDeprecated(img_path, only_if_older);
 	else
-		res = (system_args("\"%s/trampoline\" --inject=\"%s\" --mrom_dir=\"%s\" %s",
-		                   m_path.c_str(), img_path.c_str(), m_path.c_str(), only_if_older ? "" : "-f") == 0);
+		res = (system_args("\"%s/trampoline\" %s --inject=\"%s\" --mrom_dir=\"%s\" %s",
+		                   m_path.c_str(), secondary_str.c_str(), img_path.c_str(), m_path.c_str(),
+		                   only_if_older ? "" : "-f") == 0);
 
 	if(!res)
 		gui_changeOverlay("multirom_injection_failed");
@@ -2196,7 +2223,7 @@ bool MultiROM::extractBootForROM(std::string base)
 	if (DataManager::GetIntValue("tw_multirom_share_kernel") == 0)
 	{
 		gui_print("Injecting boot.img..\n");
-		if(!injectBoot(base + "/boot.img") != 0)
+		if(!injectBoot(base + "/boot.img", true) != 0)
 			return false;
 	}
 	else
@@ -3484,6 +3511,7 @@ bool MultiROM::copyInternal(const std::string& dest_name)
 		LOGERR("This ROM name is taken!\n");
 		return false;
 	}
+	std::string boot_img_path(dest_dir + "boot.img");
 
 	if (!PartitionManager.Mount_By_Path("/system", true) ||
 		!PartitionManager.Mount_By_Path("/data", true) ||
@@ -3497,11 +3525,13 @@ bool MultiROM::copyInternal(const std::string& dest_name)
 		goto erase_incomplete;
 
 	gui_print("Copying boot partition...\n");
-	if(system_args("dd if=%s of=\"%s/boot.img\" bs=4096", getBootDev().c_str(), dest_dir.c_str()) != 0)
+	if(system_args("dd if=%s of=\"%s\" bs=4096", getBootDev().c_str(), boot_img_path.c_str()) != 0)
 	{
 		gui_print("Dumping boot dev failed!\n");
 		goto erase_incomplete;
 	}
+
+	injectBoot(boot_img_path, true);
 
 	DataManager::SetValue("tw_multirom_share_kernel", 0);
 	if(!extractBootForROM(dest_dir))
@@ -3552,14 +3582,39 @@ bool MultiROM::copySecondaryToInternal(const std::string& rom_name)
 		return false;
 	}
 
+	std::string boot_img_path(src_dir + "boot.img");
+	std::string dtb_path(src_dir + "boot/dtb.img");
+	gui_print("DTB path: %s.\n", dtb_path.c_str());
+
+	std::ifstream dtbFile(dtb_path);
+	if(dtbFile)
+	{
+		struct bootimg img;
+		if(libbootimg_init_load(&img, boot_img_path.c_str(), LIBBOOTIMG_LOAD_ALL) < 0)
+		{
+			gui_print("Could not open boot image (%s)!\n", boot_img_path.c_str());
+			return false;
+		}
+		libbootimg_load_dtb(&img, dtb_path.c_str());
+		if(libbootimg_write_img(&img, boot_img_path.c_str()) < 0)
+		{
+			gui_print("Updating the boot image with the original DTB failed!\n");
+			return false;
+		}
+	}
+	else
+	{
+		gui_print("Could not find original DTB.\n");
+	}
+
 	gui_print("Writing boot partition...\n");
-	if(system_args("dd if=\"%s/boot.img\" of=\"%s\" bs=4096", src_dir.c_str(), getBootDev().c_str()) != 0)
+	if(system_args("dd if=\"%s\" of=\"%s\" bs=4096", boot_img_path.c_str(), getBootDev().c_str()) != 0)
 	{
 		gui_print("Writing boot.img has failed!\n");
 		return false;
 	}
 
-	injectBoot(getBootDev(), true);
+	injectBoot(getBootDev(), false);
 
 	static const char *parts[] = { "system", "data", "cache" };
 	for(size_t i = 0; i < sizeof(parts)/sizeof(parts[0]); ++i)

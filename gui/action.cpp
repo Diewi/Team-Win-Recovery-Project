@@ -1065,7 +1065,7 @@ void GUIAction::reinject_after_flash()
 	if(DataManager::GetIntValue(TW_AUTO_INJECT_MROM) == 1 && MultiROM::folderExists())
 	{
 		gui_print("Injecting boot.img with MultiROM...\n");
-		if (MultiROM::injectBoot(MultiROM::getBootDev(), true))
+		if (MultiROM::injectBoot(MultiROM::getBootDev(), false, true))
 			DataManager::SetValue("mrom_inject_failed", 0);
 		else {
 			DataManager::SetValue("mrom_inject_failed", 1);
@@ -2315,7 +2315,7 @@ int GUIAction::multirom_inject(std::string arg __unused)
 		op_status = MultiROM::copyBoot(path, DataManager::GetStrValue("tw_multirom_rom_name"));
 
 	if(!op_status)
-		op_status = !MultiROM::injectBoot(path);
+		op_status = !MultiROM::injectBoot(path, false);
 	operation_end(op_status);
 	return 0;
 }
@@ -2327,7 +2327,7 @@ int GUIAction::multirom_inject_curr_boot(std::string arg __unused)
 	if(op_status)
 		gui_print("MultiROM is not installed!\n");
 	else
-		op_status = !MultiROM::injectBoot(MultiROM::getBootDev());
+		op_status = !MultiROM::injectBoot(MultiROM::getBootDev(), false);
 	operation_end(op_status);
 	return 0;
 }
